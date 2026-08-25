@@ -6,6 +6,10 @@ Fetches the full SPX chain from CBOE's free delayed-quotes JSON endpoint,
 stamps it, filters to near-the-money strikes on the nearest expiries,
 flattens one row per contract, and appends to a daily CSV.
 
+If GSHEET_CREDS (service-account JSON) and GDRIVE_FOLDER_ID are set, the same
+rows are also appended to a Google Spreadsheet named "SPX YYYY-MM-DD" in that
+Drive folder — one file per day, snapshots appended, never replaced.
+
 Usage:
     python scrape.py                    # filtered snapshot -> data/YYYY-MM-DD.csv
     python scrape.py --pct 8 --expiries 4
@@ -18,6 +22,7 @@ Only dependency: requests   (pip install requests)
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -124,6 +129,35 @@ def summarize(rows, spot, total, skipped):
         print("  " + " | ".join(str(v) for v in r))
 
 
+def push_to_sheets(rows, day):
+    """Append this snapshot to the day's spreadsheet (one file per day in Drive).
+
+    Never raises: the CSV is already saved by the time this runs, and a Sheets
+    hiccup must not kill the snapshot job.
+    """
+    creds_json = os.environ.get("GSHEET_CREDS")
+    folder_id = os.environ.get("GDRIVE_FOLDER_ID")
+    if not creds_json or not folder_id:
+        print("sheets: GSHEET_CREDS / GDRIVE_FOLDER_ID not set — skipping upload")
+        return
+    try:
+        import gspread
+        gc = gspread.service_account_from_dict(json.loads(creds_json))
+        title = f"SPX {day}"
+        existing = gc.list_spreadsheet_files(title=title, folder_id=folder_id)
+        if existing:
+            sh = gc.open_by_key(existing[0]["id"])
+        else:
+            sh = gc.create(title, folder_id=folder_id)
+        ws = sh.sheet1
+        if not ws.get_values("A1"):
+            ws.append_row(COLUMNS, value_input_option="RAW")
+        ws.append_rows(rows, value_input_option="RAW")
+        print(f"sheets: appended {len(rows)} rows -> '{title}'")
+    except Exception as e:
+        print(f"sheets: upload failed ({e}) — CSV still saved", file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Snapshot the SPX options chain (CBOE delayed).")
     ap.add_argument("--pct", type=float, default=10.0,
@@ -171,6 +205,8 @@ def main():
             w.writerow(COLUMNS)
         w.writerows(rows)
     print(f"\nappended {len(rows)} rows -> {out_path}")
+
+    push_to_sheets(rows, fetched_utc[:10])
 
 
 if __name__ == "__main__":
