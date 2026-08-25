@@ -150,7 +150,7 @@ def push_to_sheets(rows, day):
         else:
             sh = gc.create(title, folder_id=folder_id)
         ws = sh.sheet1
-        if not ws.get_values("A1"):
+        if ws.acell("A1").value in (None, ""):
             ws.append_row(COLUMNS, value_input_option="RAW")
         ws.append_rows(rows, value_input_option="RAW")
         print(f"sheets: appended {len(rows)} rows -> '{title}'")
