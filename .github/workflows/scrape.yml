@@ -1,0 +1,55 @@
+# SPX options chain snapshot — runs every ~10 minutes during the US session.
+#
+# Cron is UTC. 13:30-20:00 UTC = 9:30-16:00 ET while daylight saving (EDT)
+# is in effect; after the November DST switch, change 13->14 and 19->20
+# (and the final line's 20 -> 21).
+#
+# NOTE: scheduled runs are best-effort — they routinely start late and can
+# be skipped. Every row carries its own timestamp, so gaps are tolerable.
+
+name: SPX snapshot
+
+on:
+  schedule:
+    - cron: "30,40,50 13 * * 1-5"   # 9:30-9:50 ET
+    - cron: "*/10 14-19 * * 1-5"    # 10:00-15:50 ET
+    - cron: "0 20 * * 1-5"          # 16:00 ET close
+  workflow_dispatch:                 # manual test runs
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Take snapshot
+        run: python scrape.py
+
+      - name: Commit CSV (doubles as the cron keep-alive)
+        run: |
+          git config user.name "spx-snapshot-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+          else
+            git commit -m "snapshot $(date -u +'%Y-%m-%d %H:%M') UTC"
+            git pull --rebase origin main
+            git push
+          fi
+
+# Week-2 TODO (not yet wired): append the same rows to Google Sheets via
+# gspread, using a service-account JSON stored in the GSHEET_CREDS secret.
