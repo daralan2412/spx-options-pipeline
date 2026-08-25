@@ -37,6 +37,9 @@ jobs:
 
       - name: Take snapshot
         run: python scrape.py
+        env:
+          GSHEET_CREDS: ${{ secrets.GSHEET_CREDS }}
+          GDRIVE_FOLDER_ID: "1nHTunUl2VQOXT27aIYzRRp02uueWnnyI"
 
       - name: Commit CSV (doubles as the cron keep-alive)
         run: |
@@ -51,5 +54,7 @@ jobs:
             git push
           fi
 
-# Week-2 TODO (not yet wired): append the same rows to Google Sheets via
-# gspread, using a service-account JSON stored in the GSHEET_CREDS secret.
+# Sheets upload: needs the GSHEET_CREDS repo secret (Google service-account
+# JSON with Sheets + Drive APIs enabled) and the Drive folder shared with the
+# service account as Editor. Until then the step logs "skipping upload" and
+# the CSV archive keeps working.
